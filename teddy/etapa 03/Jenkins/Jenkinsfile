@@ -1,0 +1,49 @@
+pipeline {
+    agent {
+        label 'Jenkins-slave-0'
+    }
+    environment {
+        PROJECT_NAME = "teddy-nginx"
+    }
+    stages {
+        stage('Docker'){
+            steps {                
+                task('Build Container') {
+                    script {
+                        withCredentials([string(credentialsId: 'npm-token', variable: 'NPM_TOKEN')]) {
+                            sh """
+                                rm ~/.dockercfg || true
+                                rm ~/.docker/config.json || true
+                                (eval \$(aws ecr get-login --region us-east-1 --no-include-email))
+                                docker build --build-arg NPM_TOKEN=$NPM_TOKEN -t ${env.PROJECT_NAME}:latest .
+                            """
+                        }
+                    }
+                }
+                task('Publish Container'){
+                    script {
+                        sh """
+                            docker tag ${env.PROJECT_NAME}:latest 942436156840.dkr.ecr.us-east-1.amazonaws.com/ecr-${env.PROJECT_NAME}:latest
+                            docker push 942436156840.dkr.ecr.us-east-1.amazonaws.com/ecr-${env.PROJECT_NAME}:${env.VERSION}
+
+                            docker tag ${env.PROJECT_NAME}:latest 942436156840.dkr.ecr.us-east-1.amazonaws.com/ecr-${env.PROJECT_NAME}:latest
+                            docker push 942436156840.dkr.ecr.us-east-1.amazonaws.com/ecr-${env.PROJECT_NAME}:latest
+                        """
+                    }
+                }               
+            }
+        }
+        stage('Deploy'){
+            steps {
+                task('Set scripts chmod'){
+                    script {
+                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+                        sh 'terraform init'
+                        sh 'terraform apply -auto-approve'
+                    }
+                }
+            }
+        }
+    }
+}
+}
